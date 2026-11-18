@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第二部分讲义 · 出库与并发</title>
+<style>
+  :root {
+    --ink: #1c2430;
+    --muted: #5c6b7a;
+    --line: #d7e0ea;
+    --paper: #f4f7fb;
+    --card: #fff;
+    --blue: #1d6fbf;
+    --ok: #067647;
+    --ok-soft: #e7f6ee;
+    --bad: #b42318;
+    --bad-soft: #fdeceb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    background: var(--paper);
+    font: 18px/1.65 "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+  }
+  header.top { background: #12324f; color: #fff; padding: 36px 8vw 28px; }
+  header.top p { margin: 8px 0 0; color: #c9d8e8; max-width: 52rem; }
+  h1 { font-size: 34px; line-height: 1.25; margin: 0; }
+  main { width: min(980px, 92vw); margin: 0 auto; padding: 28px 0 80px; }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 22px 24px 26px;
+    margin: 18px 0;
+  }
+  h2 { font-size: 26px; margin: 0 0 12px; }
+  h3 { font-size: 20px; margin: 24px 0 8px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.92em; }
+  pre {
+    background: #0f1c2b;
+    color: #e8eef6;
+    border-radius: 12px;
+    padding: 14px 16px;
+    overflow: auto;
+    font: 15px/1.55 ui-monospace, Menlo, Consolas, monospace;
+  }
+  .see {
+    background: var(--ok-soft);
+    border-left: 4px solid var(--ok);
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 10px 0;
+  }
+  .see b { color: var(--ok); }
+  .badbox {
+    background: var(--bad-soft);
+    border-left: 4px solid var(--bad);
+    padding: 10px 14px;
+    border-radius: 8px;
+    margin: 10px 0;
+  }
+  .badbox b { color: var(--bad); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 16px; }
+  th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 8px 10px; vertical-align: top; }
+  th { color: var(--muted); font-weight: 650; }
+  figure.shot { margin: 16px 0 8px; }
+  figure.shot img { max-width: 100%; border-radius: 12px; border: 1px solid var(--line); background: #fff; display: block; }
+  figure.shot figcaption { font-size: 15px; color: var(--muted); margin-top: 6px; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .pair figure.shot { margin: 8px 0; }
+  .tag { display: inline-block; font-size: 14px; font-weight: 650; padding: 1px 8px; border-radius: 6px; color: #fff; }
+  .tag.bad { background: var(--bad); }
+  .tag.ok { background: var(--ok); }
+  .flow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 12px 0; }
+  .box {
+    border: 2px solid var(--blue);
+    border-radius: 12px;
+    padding: 8px 12px;
+    background: #fff;
+    font-weight: 650;
+    text-align: center;
+  }
+  .arrow { color: var(--muted); }
+  a { color: var(--blue); }
+  ol.steps { padding-left: 1.2em; }
+  ol.steps > li { margin: 10px 0; }
+  nav.toc ol { columns: 2; margin: 0; }
+  @media (max-width: 760px) { .pair { grid-template-columns: 1fr; } nav.toc ol { columns: 1; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>第二部分 · 出库与并发</h1>
+  <p>第 11 周，6 课时，分支「第二部分」。第一次课（2 课时）用一个出库的案例从页面讲到数据库；第二次课（4 课时）讲两个人同时出库会出什么错、乐观锁怎样挡住。老师演示，你把代码下载下来，对照页面、代码和数据库看。</p>
+</header>
+<main>
+
+<nav class="toc">
+<section>
+  <h2>这一份讲义的顺序</h2>
+  <p><b>第一次课：出库</b></p>
+  <ol>
+    <li><a href="#page">先看页面</a></li>
+    <li><a href="#tables">用到的表</a></li>
+    <li><a href="#case">案例：从 A-01-01 出 4 个垫圈</a></li>
+  </ol>
+  <p><b>第二次课：并发</b></p>
+  <ol start="4">
+    <li><a href="#race">两个人同时出库会怎样</a></li>
+    <li><a href="#lock">乐观锁：带上 version 再改</a></li>
+    <li><a href="#self">剩下的自己看</a></li>
+    <li><a href="#hw">作业里写同类接口时</a></li>
+  </ol>
+</section>
+</nav>
+
+<section id="page">
+  <h2>1. 先看页面</h2>
+  <p>第一部分把货放进了格子（入库）。这一部分做反方向的事：把货从格子上拿走，叫「出库」。前端切到「第二部分」，左边多了「出库」页。</p>
+  <p>出库和入库一样分三步：「新建出库单」得到一张草稿 → 选货品、库位、数量，点「加一行」→ 点「完成出库」。不同的是，完成时要从那个格子的数量里<b>减掉</b>，剩下的不够就拒绝。</p>
+  <figure class="shot">
+    <img src="figures/w3-01-page-case.png" alt="出库页">
+    <figcaption>出库页。OUT-1 从 A-01-01 出 4 个垫圈，完成了；OUT-2 要出 20 个，「接口返回」里是 400「库存不足，剩余 6」，单还是 DRAFT。</figcaption>
+  </figure>
+
+</section>
+
+<section id="tables">
+  <h2>2. 用到的表</h2>
+  <table>
+    <tr><th>表</th><th>存什么</th></tr>
+    <tr><td><code>outbound_order</code></td><td>出库单：单号、状态（DRAFT / COMPLETED）</td></tr>
+    <tr><td><code>outbound_order_line</code></td><td>出库单上的每一行：哪种货、哪个库位、出多少</td></tr>
+    <tr><td><code>inventory</code></td><td>第一部分的库存表。每行多一列 <code>version</code>：这一行被改过几次，第二次课要用</td></tr>
+    <tr><td><code>stock_flow</code></td><td>库存流水：每次入库完成记一条，像银行流水</td></tr>
+  </table>
+</section>
+
+<section id="case">
+  <h2>3. 案例：从 A-01-01 出 4 个垫圈</h2>
+  <p>A-01-01 上原来有 10 个垫圈。页面上点三下：新建出库单、加一行（SKU-003、A-01-01、4）、完成出库。前两步只记单据，第三步才动库存。跟着「完成出库」从页面走到数据库：</p>
+  <figure class="shot">
+    <img src="figures/w3-02-front.png" alt="前端：完成出库">
+    <figcaption>前端。点「完成出库」执行 <code>complete()</code>，调 <code>outboundApi.complete(id)</code>，发出 <code>POST /outbound-orders/1/complete</code>，没有请求体。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-03-controller.png" alt="OutboundController">
+    <figcaption>Controller。路径里的 1 是出库单主键，交给 <code>OutboundService.complete</code>。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-04-service.png" alt="OutboundService.complete">
+    <figcaption>Service。第 79 行按货品 + 库位找到 <code>inventory</code> 那一行；第 83 行读到剩余 10；第 86 行算出 10 − 4 = 6；第 87–89 行不够就抛 <code>INSUFFICIENT_STOCK</code>（OUT-2 出 20 停在这里）；第 91–99 行把 6 写回去，这一段第二次课细讲；第 102–103 行把单改成 COMPLETED。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-05-mapper.png" alt="InventoryMapper">
+    <figcaption>Mapper。默认走第 52 行：把数量写成 6，同时 <code>version</code> 加一，条件是 <code>version</code> 还等于刚才读到的值。第 47 行是不带 version 的写法，第二次课对比用。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-06-db-case.png" alt="出库后的数据">
+    <figcaption>出库后的数据。OUT-1 是 COMPLETED，OUT-2 还是 DRAFT；A-01-01 上的垫圈从 10 变成 6，<code>version</code> 从 0 变成 1。</figcaption>
+  </figure>
+
+</section>
+
+<section id="race">
+  <h2>4. 两个人同时出库会怎样</h2>
+  <p>格子上只剩 1 个垫圈，两个仓管员各建一张出库单出 1 个，几乎同时点了「完成」。应该一张成功、一张因为不够被拒。</p>
+  <p>完成出库是「先读、再算、再写」三步。两个请求都在对方写回之前读到 1，都算出 1 − 1 = 0，都把库存写成 0：</p>
+  <table>
+    <tr><th>时间</th><th>请求 A（OUT-1）</th><th>请求 B（OUT-2）</th><th>库存</th></tr>
+    <tr><td>1</td><td>读到 1</td><td></td><td>1</td></tr>
+    <tr><td>2</td><td></td><td>读到 1</td><td>1</td></tr>
+    <tr><td>3</td><td>算出 0，写回 0</td><td></td><td>0</td></tr>
+    <tr><td>4</td><td></td><td>算出 0，写回 0</td><td>0</td></tr>
+  </table>
+  <p>结果两张单都完成，拿走 2 个，库存只少了 1 个。后写的把先写的盖掉了，这叫<b>丢失更新</b>。剩余检查也挡不住：两边算出的都是 0，不小于 0。</p>
+  <p>手点很难让两个请求在几毫秒内先后到。课上这样演示：后端启动参数加 <code>--app.lesson.optimistic-lock=off --app.lesson.outbound-read-pause-ms=3000</code>，让出库读完数量后停 3 秒；页面上勾选两张草稿单，点「同时完成勾选的单」，两个请求同一刻发出：</p>
+  <figure class="shot">
+    <img src="figures/w3-07-race-front.png" alt="前端：同时完成">
+    <figcaption>前端。<code>completeTogether</code> 用 <code>Promise.all</code> 对每张勾选的单各调一次 <code>outboundApi.complete</code>，两个请求同一刻发出。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-08-page-race-off.png" alt="乐观锁关掉时">
+    <figcaption>乐观锁关掉：两张都是 200、COMPLETED，发出时间相同，3 秒后一起回来。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-09-db-race-off.png" alt="乐观锁关掉后的数据">
+    <figcaption>数据库里库存是 0，<code>version</code> 还是 0：拿走了 2 个，只扣了 1 次。</figcaption>
+  </figure>
+
+</section>
+
+<section id="lock">
+  <h2>5. 乐观锁：带上 version 再改</h2>
+  <p>办法是写回时确认「我读到的那一版还没被别人改过」。<code>inventory</code> 每行有 <code>version</code>，每改一次加一。回到第 3 节的两张代码图：</p>
+  <ul>
+    <li>Service 第 91–96 行：读的时候连 <code>version</code> 一起读出来，写的时候调 <code>updateQuantityIfVersion</code>，影响行数是 0 就抛 <code>STOCK_CONFLICT</code>。</li>
+    <li>Mapper 第 52 行：<code>WHERE id = #{id} AND version = #{version}</code>，写成功时 <code>version = version + 1</code>。</li>
+  </ul>
+  <p>两个请求还是都读到数量 1、<code>version</code> 0。先写的那次条件成立，库存变成 0，<code>version</code> 变成 1。MySQL 让第二条 UPDATE 等第一条提交后再执行，这时 <code>version</code> 已经是 1，<code>version = 0</code> 对不上，改到 0 行，返回 <code>STOCK_CONFLICT</code>。</p>
+  <p>去掉 <code>--app.lesson.optimistic-lock=off</code>（默认就是打开的）重启，再做一遍：</p>
+  <figure class="shot">
+    <img src="figures/w3-10-page-race-on.png" alt="乐观锁打开时">
+    <figcaption>乐观锁打开：一张 200，另一张 400「库存已被别人改过」，那张单还是 DRAFT。</figcaption>
+  </figure>
+
+  <figure class="shot">
+    <img src="figures/w3-11-db-race-on.png" alt="乐观锁打开后的数据">
+    <figcaption>数据库里库存 0，<code>version</code> 1：只成功了一次，账对得上。</figcaption>
+  </figure>
+
+  <p>被拒的那一张，课上不做自动重试，由仓管员重新提交。</p>
+</section>
+
+<section id="self">
+  <h2>6. 剩下的自己看</h2>
+  <p>照着第 3 节的读法，从前端文件找到 Controller、Service、Mapper，再到表：</p>
+  <table>
+    <tr><th>内容</th><th>做什么</th><th>代码在哪</th></tr>
+    <tr><td>新建出库单、加一行</td><td>和入库一样：先建草稿，货品编码、库位编码换成主键再插入</td><td><code>OutboundController</code> → <code>OutboundService.create</code> / <code>addLine</code></td></tr>
+    <tr><td>改一行的数量（PATCH）</td><td>只有草稿能改；已完成的单返回 400 <code>ORDER_NOT_EDITABLE</code>，因为库存已经按原数量减过</td><td><code>OutboundService.updateLine</code></td></tr>
+    <tr><td>入库流水</td><td>入库完成时每一行写一条 <code>stock_flow</code>，和加库存、改状态在同一个事务里，失败时一起撤回</td><td><code>InboundService.complete</code> / <code>writeFlow</code></td></tr>
+  </table>
+</section>
+
+<section id="hw">
+  <h2>7. 作业里写同类接口时</h2>
+  <p>凡是「先读一个数、算一下、再写回去」的地方，都要想到两个请求同时来：剩余够不够要在写之前检查；写回的 UPDATE 条件要带上 <code>version</code>，影响行数是 0 时要报错，不能当成功。</p>
+</section>
+</main>
+</body>
+</html>

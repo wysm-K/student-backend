@@ -1,0 +1,180 @@
+### 变量
+@baseUrl = http://localhost:8080
+
+### =============================================
+### 1. 登录 — 获取 JWT token
+### POST /auth/login
+### =============================================
+# @name login
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Admin@123"
+}
+
+### 登录失败：密码错误
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "wrong_password"
+}
+
+### 登录失败：用户名为空（Validation 校验）
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "username": "",
+  "password": "Admin@123"
+}
+
+### =============================================
+### 2. 注册 — 创建新用户
+### POST /auth/register
+### =============================================
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "newuser",
+  "password": "Password@123",
+  "displayName": "新用户",
+  "email": "newuser@example.com",
+  "phone": "13800138000"
+}
+
+### 注册失败：用户名已存在
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "admin",
+  "password": "Password@123",
+  "displayName": "管理员"
+}
+
+### 注册失败：用户名太短（Validation 校验）
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "username": "ab",
+  "password": "Password@123"
+}
+
+### =============================================
+### 3. 获取所有用户（需携带 token）
+### GET /users
+### =============================================
+### 🔑 先执行上方登录请求，将返回的 token 替换到下方 @token 变量中
+
+@token = {{login.response.body.token}}
+
+GET {{baseUrl}}/users
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### 获取所有用户 — 未携带 token（应返回 401）
+GET {{baseUrl}}/users
+Content-Type: application/json
+Accept: application/json
+
+### =============================================
+### 4. 创建用户 — 管理员专用（可指定角色）
+### POST /users
+### =============================================
+### 需要使用 ADMIN 角色的 token
+
+POST {{baseUrl}}/users
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "username": "manager1",
+  "password": "Manager@123",
+  "displayName": "经理1",
+  "role": "OPERATOR",
+  "email": "manager1@example.com",
+  "phone": "13900139000"
+}
+
+### 创建管理员用户
+POST {{baseUrl}}/users
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "username": "admin2",
+  "password": "Admin2@123",
+  "displayName": "管理员2",
+  "role": "ADMIN",
+  "email": "admin2@example.com"
+}
+
+### 创建失败：用户名已存在
+POST {{baseUrl}}/users
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "username": "admin",
+  "password": "Password@123",
+  "role": "USER"
+}
+
+### =============================================
+### 5. 获取用户详情
+### GET /users/{id}
+### =============================================
+GET {{baseUrl}}/users/1
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### 用户不存在
+GET {{baseUrl}}/users/99999
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### =============================================
+### 6. 更新用户
+### PUT /users/{id}
+### =============================================
+PUT {{baseUrl}}/users/6
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "displayName": "API Test Updated",
+  "role": "OPERATOR",
+  "email": "updated@example.com",
+  "phone": "13900139001",
+  "status": 1
+}
+
+### 更新密码（可选字段）
+PUT {{baseUrl}}/users/6
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+{
+  "displayName": "API Test Updated",
+  "role": "OPERATOR",
+  "password": "NewPass@123"
+}
+
+### =============================================
+### 7. 禁用用户（软删除）
+### DELETE /users/{id}
+### =============================================
+DELETE {{baseUrl}}/users/6
+Accept: application/json
+Authorization: Bearer {{token}}
+
+### 禁用失败：用户不存在
+DELETE {{baseUrl}}/users/99999
+Accept: application/json
+Authorization: Bearer {{token}}
